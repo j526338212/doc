@@ -1,0 +1,52 @@
+# PowerShell 示例脚本
+# 假设要解析的 InSpec 配置文件路径如下，请根据实际情况修改
+$FilePath = "C:\temp\inspec_controls.rb"
+
+# 逐行读取文件
+$lines = [System.IO.File]::ReadAllLines($FilePath)
+
+# 标记是否在 control 块内
+$inControl = $false
+# do/end 计数器
+$doCount = 0
+# 存储所有控制块的列表
+$controlBlocks = New-Object System.Collections.Generic.List[string]
+# 存储当前控制块的所有行
+$currentBlock = New-Object System.Collections.Generic.List[string]
+
+foreach ($line in $lines) {
+    if (-not $inControl) {
+        # 检查是否是 control '...' do 的起始行（且 do 在行尾）
+        if ($line -match '^\s*control\s+["\'].+["\']\s+do\s*$') {
+            $inControl = $true
+            $doCount = 1
+            $currentBlock.Add($line)
+        }
+    }
+    else {
+        # 在 control 块内，将当前行加入当前区块
+        $currentBlock.Add($line)
+
+        # 如果本行行尾是 do
+        if ($line -match 'do\s*$') {
+            $doCount++
+        }
+        # 如果本行行尾是 end
+        elseif ($line -match 'end\s*$') {
+            $doCount--
+            # doCount 回到 0，说明刚好完成一个 control
+            if ($doCount -eq 0) {
+                # 将当前控制块合并成字符串加入列表
+                $controlText = $currentBlock -join "`r`n"
+                $controlBlocks.Add($controlText)
+
+                # 重置并开始寻找下一个 control
+                $currentBlock.Clear()
+                $inControl = $false
+            }
+        }
+    }
+}
+
+# 输出所有提取到的 control 块
+$controlBlocks
