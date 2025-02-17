@@ -1,0 +1,92 @@
+<#
+.SYNOPSIS
+  在假设 do/end 独立一行的前提下，从 Chef InSpec Profile 中提取完整的 control ... do ... end 片段。
+
+.PARAMETER FilePath
+  指定要解析的 InSpec Profile 文件路径。
+
+.EXAMPLE
+  .\Extract-FullControl-Simplified.ps1 -FilePath .\controls\example.rb
+
+.NOTES
+  - 假定写法：control 'xxx' do（或 control "xxx" do）与 end 均独立占行
+  - 如果实际情况不符合此写法，需要更复杂的方式
+#>
+
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$FilePath
+)
+
+try {
+    $lines = Get-Content -Path $FilePath
+}
+catch {
+    Write-Error "无法读取文件：$FilePath"
+    return
+}
+
+$collectedControls = @()
+
+$inControlBlock = $false
+$depth = 0
+$accumulator = New-Object System.Collections.Generic.List[string]
+$controlName = $null
+
+# 识别 control ... do 的行 (允许单引号或双引号)
+$controlPattern = [regex]'^\s*control\s+(["''])([^"']+)\1\s+do\s*$'
+
+foreach ($line in $lines) {
+
+    if (-not $inControlBlock) {
+        # 尚未进入 control 块，看此行是否是 control "xxx" do
+        $m = $controlPattern.Match($line)
+        if ($m.Success) {
+            # 找到新的 control 块
+            $controlName = $m.Groups[2].Value  # "xxx" 或 'xxx' 中的名字
+            $inControlBlock = $true
+
+            $accumulator.Clear()
+            $accumulator.Add($line)
+            # 因为本行已经包含了 do，所以 depth初始化为1
+            $depth = 1
+        }
+    }
+    else {
+        # 已在 control 代码块区域内，继续收集
+        $accumulator.Add($line)
+
+        # 如果当前行(去除前后空格后)恰好是 do，则 depth++
+        # 如果当前行(去除前后空格后)恰好是 end，则 depth--
+        $trimLine = $line.Trim()
+
+        if ($trimLine -eq 'do') {
+            $depth++
+        }
+        elseif ($trimLine -eq 'end') {
+            $depth--
+        }
+
+        if ($depth -eq 0) {
+            # control 块结束
+            $collectedControls += [PSCustomObject]@{
+                ControlName = $controlName
+                RawText     = ($accumulator -join "`r`n")
+            }
+
+            $inControlBlock = $false
+            $controlName = $null
+            $accumulator.Clear()
+        }
+    }
+}
+
+Write-Host "`n=== 提取到的 control 块信息 ===`n"
+foreach ($ctrl in $collectedControls) {
+    Write-Host "[Control Name]: $($ctrl.ControlName)"
+    Write-Host "-----  RawText  -----"
+    Write-Host $ctrl.RawText
+    Write-Host "---------------------`n"
+}
+
+return $collectedControls
