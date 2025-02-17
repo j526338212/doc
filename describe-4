@@ -1,0 +1,102 @@
+<#
+.SYNOPSIS
+  从 InSpec 控制文件中，捕获以下 describe 写法，并提取出所需信息：
+    - describe security_policy do
+    - describe security_policy.PropertyName do
+    - describe registry_key("some registry path") do
+
+.DESCRIPTION
+  每行使用正则检查，若符合这两种形式之一，就提取：
+    1. security_policy => 可选属性部分
+    2. registry_key => 括号内的完整地址
+
+.EXAMPLE
+  PS C:\> .\ParseSecurityAndRegistry.ps1 -Path .\controls.rb
+#>
+
+param(
+    [Parameter(Mandatory=$true, HelpMessage="请指定完整 InSpec 控制文件路径")]
+    [string]$Path
+)
+
+if (!(Test-Path $Path)) {
+    Write-Host "文件 $Path 不存在，请确认路径正确。"
+    return
+}
+
+# 1. 逐行读取
+$fileLines = Get-Content -Path $Path
+
+# 2. 准备正则
+#    ^\s*describe\s+
+#    (?:
+#       (?<securityBase>security_policy)(?:\.(?<securityProperty>\w+))?
+#       |
+#       (?<registryBase>registry_key\("(?<registryPath>[^"]+)"\))
+#    )
+#    \s+do\s*$
+#
+#   解释：
+#     - ^\s*describe\s+  : 行首可有空白，然后是 "describe "（后面至少一个空格）
+#     - (?:
+#         (?<securityBase>security_policy)(?:\.(?<securityProperty>\w+))?
+#         |
+#         (?<registryBase>registry_key\("(?<registryPath>[^"]+)"\))
+#       )
+#       这部分用 (?: ... | ... ) 实现“或”：
+#         - 第一种：security_policy 或 security_policy.XXXX
+#             捕获到名为 "securityBase" 的组 (固定是 security_policy)
+#             可选 .PropertyName => 若有，则捕获到名为 "securityProperty" 的组
+#         - 第二种：registry_key("...") => 捕获到 "registryBase" 组 (固定是 registry_key("..."))
+#             另有 "registryPath" 捕获组，用于获取双引号里面的地址
+#     - \s+do\s*$ : 之后必须出现空格 + do + 行尾
+#
+$pattern = '^\s*describe\s+(?:(?<securityBase>security_policy)(?:\.(?<securityProperty>\w+))?|(?<registryBase>registry_key\("(?<registryPath>[^"]+)"\)))\s+do\s*$'
+
+# 3. 用于存放解析结果
+$parsedResults = @()
+
+foreach ($line in $fileLines) {
+    if ($line -match $pattern) {
+        
+        # 我们用正则捕获的组：
+        #   securityBase, securityProperty
+        #   registryBase, registryPath
+        $securityBase      = $matches['securityBase']
+        $securityProperty  = $matches['securityProperty']
+        $registryBase      = $matches['registryBase']
+        $registryPath      = $matches['registryPath']
+
+        # 判断是哪种资源
+        if ($securityBase) {
+            # 说明是 security_policy(.[property]) 这类
+            $parsedResults += [PSCustomObject]@{
+                Type               = "security_policy"
+                SecurityBase       = $securityBase      # 固定 "security_policy"
+                SecurityProperty   = $securityProperty  # 可能为 $null 或 "PasswordPolicy"
+                RegistryBase       = $null              # 不适用
+                RegistryPath       = $null              # 不适用
+                OriginalLine       = $line.Trim()
+            }
+        }
+        elseif ($registryBase) {
+            # 说明是 registry_key("...")
+            $parsedResults += [PSCustomObject]@{
+                Type               = "registry_key"
+                SecurityBase       = $null              # 不适用
+                SecurityProperty   = $null              # 不适用
+                RegistryBase       = $registryBase      # e.g. registry_key("...")
+                RegistryPath       = $registryPath      # e.g. HKEY_LOCAL_MACHINE\Software\...
+                OriginalLine       = $line.Trim()
+            }
+        }
+    }
+}
+
+# 4. 输出演示
+if ($parsedResults.Count -eq 0) {
+    Write-Host "未匹配到任何 describe 行（security_policy 或 registry_key）"
+} else {
+    Write-Host "[解析结果]"
+    $parsedResults | Format-Table
+}
