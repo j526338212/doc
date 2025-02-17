@@ -1,0 +1,161 @@
+<#
+.SYNOPSIS
+  解析 Chef InSpec Profile 中的 control block，并抽取
+  - impact
+  - title
+  - desc
+  - tag
+  - 形如 input('custom_var', value: 'XXX') 的自定义变量
+  - 形如 pr = ["test-1","test-2"] 的 Ruby 数组变量
+
+.PARAMETER FilePath
+  指定要解析的 InSpec Profile 文件路径。
+
+.EXAMPLE
+  .\Parse-InSpecControl.ps1 -FilePath .\controls\example.rb
+
+.NOTES
+  该脚本示例仅演示正则解析方法，在真实工程中可结合属性格式、AST 分析。
+#>
+
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$FilePath
+)
+
+try {
+    # 读取文件内容（-Raw 一次性返回整串文本）
+    $fileContent = Get-Content -Path $FilePath -Raw
+}
+catch {
+    Write-Error "无法读取文件：$FilePath"
+    return
+}
+
+# 匹配出所有的 control block
+# 正则模式：?s 表示单行模式 (dotall)，使 . 能匹配换行
+$controlPattern = '(?s)control\s+[\'"]([^\'"]+)[\'"]\s+do(.*?)end'
+$controls = [System.Text.RegularExpressions.Regex]::Matches($fileContent, $controlPattern)
+
+if ($controls.Count -eq 0) {
+    Write-Host "未发现任何 control block."
+    return
+}
+
+# 存储结果
+$parsedResults = @()
+
+foreach ($control in $controls) {
+    $controlName = $control.Groups[1].Value  # control 'xxx' 的名字
+    $controlBody = $control.Groups[2].Value  # control 块内部内容
+
+    # ———— 解析 impact ————
+    $impactPattern = 'impact\s+([\d\.]+)'
+    $impactMatch = [Regex]::Match($controlBody, $impactPattern)
+    $impact = if ($impactMatch.Success) { $impactMatch.Groups[1].Value } else { '' }
+
+    # ———— 解析 title ————
+    $titlePattern = 'title\s+[\'"]([^\'"]+)[\'"]'
+    $titleMatch = [Regex]::Match($controlBody, $titlePattern)
+    $title = if ($titleMatch.Success) { $titleMatch.Groups[1].Value } else { '' }
+
+    # ———— 解析 desc ————
+    $descPattern = 'desc\s+[\'"]([^\'"]+)[\'"]'
+    $descMatch = [Regex]::Match($controlBody, $descPattern)
+    $desc = if ($descMatch.Success) { $descMatch.Groups[1].Value } else { '' }
+
+    # ———— 解析 tag ————
+    # 支持常见写法，如 tag 'compliance', 'audit'
+    # 也可能是 tag 'key': 'value'
+    $tagList = @()
+    $tagPattern = '(?m)^\s*tag\s+(.*)$'
+    $tagMatches = [Regex]::Matches($controlBody, $tagPattern)
+    foreach ($tagItem in $tagMatches) {
+        $innerTagString = $tagItem.Groups[1].Value.Trim()
+
+        # 判断 tag 'key': 'value' 形式
+        if ($innerTagString -match "([\"'])([^\"']+)\1\s*:\s*([\"'])([^\"']+)\3") {
+            $key = $Matches[2]
+            $val = $Matches[4]
+            $tagList += "$key=$val"
+        }
+        else {
+            # 否则处理 tag 'xxx', 'yyy' 形式
+            $cleanedTag = $innerTagString.Trim(" ", "'", "`", ",", "`t", "`n")
+            $splitTags = $cleanedTag -split '\s*,\s*'
+            foreach ($t in $splitTags) {
+                $tagList += $t.Trim(" '")
+            }
+        }
+    }
+
+    # ———— 解析 InSpec 自定义变量 input('xxx', value: 'xxx') ————
+    $inputPattern = "input\s*\(\s*['""]([^'""]+)['""]\s*,\s*value:\s*['""]([^'""]+)['""]"
+    $inputMatches = [Regex]::Matches($controlBody, $inputPattern)
+    $customInputs = @{}
+    foreach ($m in $inputMatches) {
+        $varName = $m.Groups[1].Value
+        $varValue = $m.Groups[2].Value
+        $customInputs[$varName] = $varValue
+    }
+
+    # ———— 解析 Ruby 数组变量 pr = ["test-1","test-2"] ————
+    # 假设每个控制内可能有多行类似赋值，也可以修改成只匹配 pr 变量或匹配其它 key
+    # 匹配形如：xxx = [ "val1", "val2" ]
+    # 分两步：先捕获整个 [xxx, xxx]，然后分割内部值
+    $arrayVars = @{}  # 存储形如 pr => ["test-1","test-2"]
+    
+    # 我们这里示例只专注于 pr 变量，如果需要通用，可以使用更灵活的表达式
+    $prPattern = '(?m)(\bpr\b)\s*=\s*\[(.*?)\]'
+    $prMatch = [Regex]::Match($controlBody, $prPattern)
+    if ($prMatch.Success) {
+        # $prMatch.Groups[1].Value -> pr
+        # $prMatch.Groups[2].Value -> "test-1","test-2"
+        $prRawValue = $prMatch.Groups[2].Value
+        # 去掉空格，并按逗号分割
+        # 注意：如果可能包含字符串中带逗号，就需要更复杂的方式，比如更深层次的正则或 AST
+        $prItems = $prRawValue -split '["''],["'']'
+        # 做一下清洗
+        $prItems = $prItems | ForEach-Object { 
+            # 去除可能包裹的引号和空白
+            $_ -replace '["\s]', '' -replace '["\s]', ''
+        } | Where-Object { $_ -ne '' }
+
+        # 存为数组
+        $arrayVars["pr"] = $prItems
+    }
+
+    # 组装结果
+    $parsedControl = [PSCustomObject]@{
+        ControlName   = $controlName
+        Impact        = $impact
+        Title         = $title
+        Description   = $desc
+        Tags          = $tagList -join '; '
+        CustomInputs  = $customInputs
+        ArrayVars     = $arrayVars
+    }
+    $parsedResults += $parsedControl
+}
+
+Write-Host "`n解析到的控制信息：`n"
+foreach ($item in $parsedResults) {
+    Write-Host "ControlName : $($item.ControlName)"
+    Write-Host "Impact      : $($item.Impact)"
+    Write-Host "Title       : $($item.Title)"
+    Write-Host "Description : $($item.Description)"
+    Write-Host "Tags        : $($item.Tags)"
+
+    Write-Host "`nCustomInputs:"
+    foreach ($k in $item.CustomInputs.Keys) {
+        Write-Host "  $k = $($item.CustomInputs[$k])"
+    }
+
+    Write-Host "`nArrayVars:"
+    foreach ($k in $item.ArrayVars.Keys) {
+        Write-Host "  $k = $($item.ArrayVars[$k] -join ', ')"
+    }
+    Write-Host "-----------------------------------------`n"
+}
+
+return $parsedResults
