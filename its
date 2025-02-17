@@ -1,13 +1,14 @@
 <#
 .SYNOPSIS
-  使用 PowerShell 的正则表达式解析 .rb 文件中的 describe 块，并同时提取内含的 it { ... } 和 its('...') { ... } 语句。
+  在解析每个 it { ... } 或 its('xxx') { ... } 时，进一步解析 "should xxx"、"should_not xxx" 等语句。
 
 .DESCRIPTION
-  1. 整体思路：先用第一层正则捕获 describe 块，再对每个块用第二层正则捕获其下的 it 与 its 语句。
-  2. 注意，如果你的 it { ... } / its { ... } 是多行或更复杂的书写方式，需要额外处理。
+  - 首先以第1层正则取出 describe ... do ... end 块
+  - 第2层正则把每个 describe 块中的所有 it、its(...) 语句提取出来
+  - 第3层对捕获的 it/its 块中出现的 "should"、"should_not" 等进行更细的拆分
 
 .EXAMPLE
-  PS C:\> .\ParseItAndIts.ps1 -Path .\controls.rb
+  PS C:\> .\Parse-ItAndItsAdvance.ps1 -Path .\controls.rb
 #>
 
 param(
@@ -20,16 +21,10 @@ if (!(Test-Path $Path)) {
     return
 }
 
-# 1. 读取整个文件为一个字符串，-Raw 可保留换行
+# 1. 读取整个文件为一个字符串（-Raw 便于多行匹配）
 $fileContent = Get-Content -Path $Path -Raw
 
-# 2. 匹配所有 describe ... do ... end 块
-#    (?ms):
-#       - (?m) 多行模式，让 ^ $ 匹配行首和行尾
-#       - (?s) 单行模式，让 '.' 可匹配换行
-#    正则分组:
-#       - (?<resource>) 捕获 describe 后面的资源字符串
-#       - (?<body>) 捕获 describe ... do ... 与 end 之间的全部内容
+# 2. 匹配所有 describe ... do ... end 块 (同前)
 $describePattern = '(?ms)^\s*describe\s+(?<resource>.*?)\s+do\s*(?<body>.*?)^\s*end\s*'
 $describeMatches = [regex]::Matches($fileContent, $describePattern)
 
@@ -38,54 +33,99 @@ if ($describeMatches.Count -eq 0) {
     return
 }
 
-# 3. 分别加两个正则，专门匹配 it 与 its
-# 
-#   it { ... }
-#     - ^\s*it\s*\{\s*(?<itBody>[^}]*)\}
-#       捕获大括号内的语句, 简化处理单行情况
-#
-#   its('xxx') { ... }
-#     - ^\s*its\s*\(\s*["']?(?<itsField>[^"'\)]+)["']?\)\s*\{\s*(?<itsBody>[^}]*)\}
-#       捕获 its(...) 中的字段以及大括号内的语句
-#
+# 3. 用以匹配 it 与 its 的正则 (同前)
 $itPattern  = '(?m)^\s*it\s*\{\s*(?<itBody>[^}]*)\}'
 $itsPattern = '(?m)^\s*its\s*\(\s*["'']?(?<itsField>[^"'\)]+)["'']?\)\s*\{\s*(?<itsBody>[^}]*)\}'
 
-# 4. 解析并输出结果
+# 4. 进一步解析 "should" 或 "should_not" 及后续内容的正则
+#   - 匹配示例: should exist
+#               should_not be_running
+#               should cmp '0644'
+#   模式演示: 
+#       (?<shouldVerb>should|should_not)   —— 捕获 should 或 should_not
+#       \s+(?<matcher>\w+)                 —— 紧接一个单词 (eq, cmp, be_running, exist, etc.)
+#       (?:\s+(?<arguments>.+))?           —— 可能有更多内容（如 '0644', 'root'），用非捕获组 (?: ) 包裹
+$shouldPattern = '(?<shouldVerb>should|should_not)\s+(?<matcher>\w+)(?:\s+(?<arguments>.+))?'
+
+# 5. 开始解析
 $allDescribes = @()
 
 foreach ($descMatch in $describeMatches) {
+
+    # describe 块名称（如 file('/etc/ssh/sshd_config')）
     $resourceName = $descMatch.Groups['resource'].Value.Trim()
+    # describe 块内部正文
     $blockContent = $descMatch.Groups['body'].Value
 
-    # 匹配所有 it { ... } 语句
+    # 获取所有 it { ... } 语句
     $foundIts  = [regex]::Matches($blockContent, $itPattern)
-    # 匹配所有 its(...) { ... } 语句
+    # 获取所有 its('xxx') { ... } 语句
     $foundItsS = [regex]::Matches($blockContent, $itsPattern)
 
-    # 组合到对象中
+    # 构造描述对象
     $describeObject = [PSCustomObject]@{
-        ResourceName = $resourceName
-        ItStatements = @()  # 存放 it 的内容
-        ItsStatements= @()  # 存放 its('xxx') 的内容
+        ResourceName  = $resourceName
+        ItStatements  = @()
+        ItsStatements = @()
     }
 
+    # --- 解析 it { ... } ---
     foreach ($m in $foundIts) {
         $itBody = $m.Groups['itBody'].Value.Trim()
-        $describeObject.ItStatements += $itBody
+
+        # 可能在 itBody 中出现多次 "should"、"should_not" 等；这里用 [regex]::Matches 逐一提取
+        $shouldMatches = [regex]::Matches($itBody, $shouldPattern)
+        $parsedShoulds = @()
+
+        foreach ($shouldMatch in $shouldMatches) {
+            $verb      = $shouldMatch.Groups['shouldVerb'].Value   # should / should_not
+            $matcher   = $shouldMatch.Groups['matcher'].Value      # exist / eq / cmp / be_running ...
+            $arguments = $shouldMatch.Groups['arguments'].Value    # '0644' / 'root' ...
+            
+            # 构造一个对象，便于后续使用
+            $parsedShoulds += [PSCustomObject]@{
+                Verb      = $verb      # "should" or "should_not"
+                Matcher   = $matcher
+                Arguments = $arguments
+            }
+        }
+
+        # 记录到 describeObject
+        $describeObject.ItStatements += [PSCustomObject]@{
+            Original   = $itBody
+            Conditions = $parsedShoulds
+        }
     }
 
+    # --- 解析 its('xxx') { ... } ---
     foreach ($m in $foundItsS) {
         $field = $m.Groups['itsField'].Value.Trim()
         $body  = $m.Groups['itsBody'].Value.Trim()
-        $describeObject.ItsStatements += ,([PSCustomObject]@{
-            Field = $field
-            Body  = $body
-        })
+
+        $shouldMatches = [regex]::Matches($body, $shouldPattern)
+        $parsedShoulds = @()
+
+        foreach ($shouldMatch in $shouldMatches) {
+            $verb      = $shouldMatch.Groups['shouldVerb'].Value
+            $matcher   = $shouldMatch.Groups['matcher'].Value
+            $arguments = $shouldMatch.Groups['arguments'].Value
+
+            $parsedShoulds += [PSCustomObject]@{
+                Verb      = $verb
+                Matcher   = $matcher
+                Arguments = $arguments
+            }
+        }
+
+        $describeObject.ItsStatements += [PSCustomObject]@{
+            Field      = $field
+            Original   = $body
+            Conditions = $parsedShoulds
+        }
     }
 
     $allDescribes += $describeObject
 }
 
-# 5. 输出
+# 最终输出
 $allDescribes
