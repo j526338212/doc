@@ -1,22 +1,16 @@
-下面示例脚本演示了**如何在 PowerShell 中解析 Chef InSpec Profile** 中的 `describe` 块和其中的 `its(...)` 内容。该示例同样使用**简单的正则表达式**和**状态机**思路，仅作为演示。如果你的 InSpec 代码块更复杂（多行、嵌套等），则需要进行更健壮的处理。
-
-> **注意**：脚本示例中仅演示核心思路，不一定完整适应所有场景，可根据实际需求进行扩展。
-
----
-
-## 示例脚本
-
-```powershell
 <#
 .SYNOPSIS
-  解析 InSpec Profile 中的 describe 块，并提取其中的 its(...) 内容。
+  使用 PowerShell 的正则表达式解析 .rb 文件中的 describe 块，并提取所有 it、its 语句。
 
 .DESCRIPTION
-  该脚本示例通过正则表达式和简单的状态机，
-  在 "describe resource do ... end" 之间检索其 "its(...) { ... }" 的内容。
+  1. 首先读取整个文件内容（-Raw，便于多行处理）。
+  2. 用正则获取所有的 describe 块：正则模式捕获 "describe ... do ... end"。
+  3. 对每个 describe 块中的代码，用正则提取:
+     - it { ... }
+     - its('something') { ... }
 
 .EXAMPLE
-  PS C:\> .\ParseInSpecDescribe.ps1 -Path .\controls.rb
+  PS C:\> .\Parse-Inspec-Describe.ps1 -Path .\controls.rb
 #>
 
 param(
@@ -24,131 +18,84 @@ param(
     [string]$Path
 )
 
-function Parse-DescribeBlock {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$FilePath
-    )
-
-    if (!(Test-Path $FilePath)) {
-        Write-Host "文件 $FilePath 不存在。"
-        return
-    }
-
-    $lines = Get-Content -Path $FilePath
-
-    # 保存结果的数组
-    $describeBlocks = @()
-    $currentDescribe = $null
-    $inDescribeBlock = $false
-
-    foreach ($line in $lines) {
-        $trimLine = $line.Trim()
-
-        # 1) 匹配 describe resource do
-        #    示例: describe file('/etc/ssh/sshd_config') do
-        #    注意 (?i) 表示不区分大小写匹配 "describe"
-        if ($trimLine -match '^(?i)\s*describe\s+(.+)\s+do\s*$') {
-            # 如果已经有一个 describeBlock 在解析，先存入数组
-            if ($currentDescribe) {
-                $describeBlocks += $currentDescribe
-            }
-
-            # 新建 describeBlock
-            $resourceName = $matches[1]
-            $currentDescribe = [PSCustomObject]@{
-                Resource = $resourceName
-                ItsList  = @() # 用于存储每个 its(...) 的信息
-            }
-
-            $inDescribeBlock = $true
-            continue
-        }
-
-        # 2) 如果到了 describe 块的结束 ("end")
-        if ($inDescribeBlock -and $trimLine -match '^end\s*$') {
-            if ($currentDescribe) {
-                $describeBlocks += $currentDescribe
-                $currentDescribe = $null
-            }
-            $inDescribeBlock = $false
-            continue
-        }
-
-        # 3) 如果正在 describe 块中，提取 its(...)
-        if ($inDescribeBlock -and $currentDescribe) {
-            # 示例代码： its('mode') { should cmp '0644' }
-            # 正则思路：
-            #   - 匹配 ^\s*its\((['"]?)(.*?)\1\).*  解析出其括号内的内容
-            #   - 也可直接做更简化的匹配，如 ^\s*its\('(.*?)'\)\s*\{(.*)\} 等
-            
-            if ($trimLine -match "^\s*its\s*\(\s*(['""]?)([^'""]+)\1\s*\).*") {
-                $itsField = $matches[2]  # its(...) 内部的内容（例如 'mode', 'content', ...）
-                
-                # 可以进一步提取 { ... } 内的信息，这里做一个简单示例
-                # 仅匹配 "should ...", 以演示提取
-                if ($trimLine -match '\{\s*(should\s+.*)\s*\}') {
-                    $shouldPart = $matches[1]
-                } else {
-                    $shouldPart = $null
-                }
-
-                # 存储到其数组
-                $currentDescribe.ItsList += [PSCustomObject]@{
-                    ItsField  = $itsField
-                    ShouldCmd = $shouldPart
-                }
-            } 
-            elseif ($trimLine -match "^\s*it\s*\{(.*)\}") {
-                # 如果也想解析 it {} 里的内容，也可类似处理
-                # 示例: it { should exist }
-                $shouldCmd = $matches[1].Trim()
-                $currentDescribe.ItsList += [PSCustomObject]@{
-                    ItsField  = "it"   # it 语句一般没有参数
-                    ShouldCmd = $shouldCmd
-                }
-            }
-        }
-    }
-
-    # 如果文件结束时还有当前 describeBlock 没存，就补上
-    if ($currentDescribe) {
-        $describeBlocks += $currentDescribe
-    }
-
-    return $describeBlocks
+if (!(Test-Path $Path)) {
+    Write-Host "文件 $Path 不存在。请确认路径正确。"
+    return
 }
 
-# 调用并输出结果
-$parsedDescribes = Parse-DescribeBlock -FilePath $Path
-$parsedDescribes | Format-Table -AutoSize
-```
+# 读取整个文件为单个字符串（-Raw 便于多行匹配）
+$fileContent = Get-Content -Path $Path -Raw
 
----
+# 第一步：匹配所有的 describe ... do ... end 块
+#   - (?ms) 启用多行和单行模式:
+#       (?m) 让 ^ 和 $ 匹配每一行的开头和结尾
+#       (?s) 让 '.' 匹配换行符
+#   - ^\s*describe\s+(?<resource>.*?)\s+do\s* : 从行首开始，匹配 describe + 资源名 + do
+#   - (?<body>.*?) : 尽可能少地匹配描述块内部的所有字符
+#   - \s*end : 直到遇到行首或行尾的 end
+$describePattern = '(?ms)^\s*describe\s+(?<resource>.*?)\s+do\s*(?<body>.*?)^\s*end\s*'
 
-## 使用说明
+$describeMatches = [regex]::Matches($fileContent, $describePattern)
 
-1. 将上述脚本内容保存为 `ParseInSpecDescribe.ps1`（或你喜欢的其他文件名）。
-2. 在 PowerShell 中执行：
-   ```powershell
-   PS C:\> .\ParseInSpecDescribe.ps1 -Path .\controls.rb
-   ```
-3. 该脚本示例会输出类似下列结构的结果：
-   ```
-   Resource                    ItsList
-   --------                    ------
-   file('/etc/ssh/sshd_config) {@{ItsField=mode; ShouldCmd=should cmp '0644'}, ...}
-   ```
-   其中 `Resource` 即 `describe` 后面的内容，如 `file('/etc/ssh/sshd_config')`。 `ItsList` 是一个数组，包含脚本中解析到的所有 `its(...)` 行的信息。
+if ($describeMatches.Count -eq 0) {
+    Write-Host "未匹配到任何 describe 块。"
+    return
+}
 
----
+# 准备用于匹配 it / its 的正则表达式：
+# 示例：
+#   it { should exist }
+#   its('mode') { should cmp '0644' }
+#
+# 对于 it { ... }：
+#   - ^\s*it\s*\{(?<itBody>[^}]*)\}      (简单匹配，跨多行需更复杂)
+#
+# 对于 its('X') { ... }：
+#   - ^\s*its\s*\(\s*['"]?(?<itsField>[^'"\)]+)['"]?\)\s*\{\s*(?<itsBody>[^}]+)\}
+#
+# 这里为了演示简洁，将这两种写法分成两个独立正则分别匹配。
+$itPattern  = '(?m)^\s*it\s*\{\s*(?<itBody>[^}]*)\}'
+$itsPattern = '(?m)^\s*its\s*\(\s*["'']?(?<itsField>[^"'\)]+)["'']?\)\s*\{\s*(?<itsBody>[^}]*)\}'
 
-### 进一步扩展
+# 最终存储结果的数组
+$parsedResult = @()
 
-1. **多行解析**：若 `its(...) { should ... }` 跨多行（例如 `{` 在下一行），则需要更复杂的正则或改用多行缓存的方式来解析。
-2. **解析 more 宏**：如果 `should` 中包括了更多 InSpec 的语法或宏，需要针对这些做更细粒度的正则或解析逻辑。  
-3. **错误处理**：如果某些 describe 块没有 `do ... end` 成对出现，或者行内注释过多等，都需要做更多健壮性处理。
+foreach ($descMatch in $describeMatches) {
+    # describe 后面捕获的资源字符串
+    $resourceName = $descMatch.Groups['resource'].Value.Trim()
+    # describe 块中的具体内容
+    $blockContent = $descMatch.Groups['body'].Value
 
----
+    # 在这个 blockContent 里寻找所有 it 和 its 语句
+    $itMatches  = [regex]::Matches($blockContent, $itPattern)
+    $itsMatches = [regex]::Matches($blockContent, $itsPattern)
 
-以上示例可以帮助你**初步**用 PowerShell 来解析 `describe` 块，并提取 `its(...)` 内的字段和语句。根据你的实际业务需求，你可以在这个脚本基础上做更灵活的扩展。祝你一切顺利！
+    # 构造一个对象来存储解析信息
+    $describeObject = [PSCustomObject]@{
+        ResourceName = $resourceName
+        ItList       = @()
+        ItsList      = @()
+    }
+
+    # 将匹配到的 it { ... } 加入结果
+    foreach ($m in $itMatches) {
+        $describeObject.ItList += ,$m.Groups['itBody'].Value.Trim()
+    }
+
+    # 将匹配到的 its('...') { ... } 加入结果
+    foreach ($m in $itsMatches) {
+        $field = $m.Groups['itsField'].Value.Trim()
+        $body  = $m.Groups['itsBody'].Value.Trim()
+        $describeObject.ItsList += ,([PSCustomObject]@{
+            ItsField = $field
+            Body     = $body
+        })
+    }
+
+    $parsedResult += $describeObject
+}
+
+# 可以直接输出，也可以用表格展示
+$parsedResult | ForEach-Object {
+    $_
+}
