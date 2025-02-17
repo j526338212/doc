@@ -1,0 +1,120 @@
+<#
+.SYNOPSIS
+  从 Chef InSpec Profile 中提取完整的 control ... do ... end 段落，允许 desc 等字符串包含 do / end，不影响嵌套计数。
+
+.PARAMETER FilePath
+  指定要解析的 InSpec Profile 文件路径。
+
+.EXAMPLE
+  .\Extract-FullControl.ps1 -FilePath .\controls\example.rb
+
+.NOTES
+  - 本脚本通过“去除行内字符串”来避免错误计数 do/end。
+  - 仍是基于正则的简化做法；对多行字符串或复杂 Ruby 语法可能不适用。
+#>
+
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$FilePath
+)
+
+# 尝试读取文件行
+try {
+    $lines = Get-Content -Path $FilePath
+}
+catch {
+    Write-Error "无法读取文件：$FilePath"
+    return
+}
+
+# 用于存储提取到的 control 段落
+$collectedControls = @()
+
+$inControlBlock = $false    # 是否正在收集某个 control
+$depth = 0                  # 记录 do-end 嵌套深度
+$accumulator = New-Object System.Collections.Generic.List[string]
+$controlName = $null
+
+# 用于匹配 control "xxx" do 或 control 'xxx' do
+$controlPattern = [regex]'control\s+(["''])([^"']+)\1\s+do'
+
+foreach ($line in $lines) {
+
+    if (-not $inControlBlock) {
+        # 若尚未进入 control 块，先检查当前行是否包含 control "xxx" do
+        $m = $controlPattern.Match($line)
+        if ($m.Success) {
+            # 说明此行是一个 control 块的起始
+            $controlName = $m.Groups[2].Value    # 获取 control 名称
+            $inControlBlock = $true
+            $accumulator.Clear()
+
+            # 在计数前先屏蔽行内字符串
+            $lineNoStrings = Remove-QuotedStrings -Line $line
+
+            # 统计当前行中真正的 do / end
+            $doCount = [regex]::Matches($lineNoStrings, '\bdo\b').Count
+            $endCount = [regex]::Matches($lineNoStrings, '\bend\b').Count
+            $depth = $doCount - $endCount
+
+            $accumulator.Add($line)
+        }
+    }
+    else {
+        # 已经处于 control 块内部
+        $accumulator.Add($line)
+
+        # 同样先去除行内字符串再统计
+        $lineNoStrings = Remove-QuotedStrings -Line $line
+
+        $doCount = [regex]::Matches($lineNoStrings, '\bdo\b').Count
+        $endCount = [regex]::Matches($lineNoStrings, '\bend\b').Count
+        $depth += ($doCount - $endCount)
+
+        if ($depth -le 0) {
+            # 嵌套深度回到 0，表示 control 块结束
+            $collectedControls += [PSCustomObject]@{
+                ControlName = $controlName
+                Lines       = $accumulator.ToArray()
+                RawText     = ($accumulator -join "`r`n")
+            }
+
+            # 重置
+            $inControlBlock = $false
+            $depth = 0
+            $controlName = $null
+            $accumulator.Clear()
+        }
+    }
+}
+
+Write-Host "`n=== 提取到的 control 块信息 ===`n"
+foreach ($ctrl in $collectedControls) {
+    Write-Host "Control Name: $($ctrl.ControlName)"
+    Write-Host "----- RawText Start -----"
+    Write-Host $ctrl.RawText
+    Write-Host "----- RawText End   -----`n"
+}
+
+return $collectedControls
+
+
+<#
+  下面是辅助函数：
+  Remove-QuotedStrings -Line $someLine
+  作用：将一行中**所有**在双引号或单引号中的内容去掉(或替换为空白)，
+  从而避免字符串中的 do / end 干扰计数
+#>
+function Remove-QuotedStrings {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$Line
+    )
+
+    # 思路：
+    #  - 匹配 "xxx" 或 'xxx'，包括最外层引号，把它替换为空白
+    #  - 这是一种简化，无法处理多行字符串或复杂转义情况
+    $pattern = '("([^"\\]|\\.)*"|\'([^\'\\]|\\.)*\')'
+    $result = [regex]::Replace($Line, $pattern, '') 
+    return $result
+}
