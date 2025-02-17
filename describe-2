@@ -1,0 +1,51 @@
+<#
+.SYNOPSIS
+  从 .rb 文件中捕获 describe 和 do 之间的内容。
+  
+.DESCRIPTION
+  假设 InSpec 里的某一行形如：
+    describe file('/etc/passwd') do
+  我们用正则提取 file('/etc/passwd') 这一部分。
+
+.EXAMPLE
+  .\ParseDescribeResource.ps1 -Path .\controls.rb
+#>
+
+param(
+    [Parameter(Mandatory=$true, HelpMessage="请指定包含 InSpec 控制文件的路径")]
+    [string]$Path
+)
+
+if (!(Test-Path $Path)) {
+    Write-Host "文件 $Path 不存在，请确认路径正确。"
+    return
+}
+
+# 1. 逐行读取文件
+$fileLines = Get-Content -Path $Path
+
+# 2. 准备一个正则，用来捕获 "describe" 和 "do" 之间的文本
+#    - ^\s*describe\s+ 表示行首(可有空白)然后是describe，再跟一个或多个空白
+#    - (?<resource>.*?) 表示捕获组resource，匹配到第一个 do 之前的所有字符(非贪婪)
+#    - \s+do\s*$ 后面跟 0~多空格再跟 do，然后行尾
+#
+#    (?m) 选项让 ^ 和 $ 匹配每一行的开头和结尾；这里用 -match 时也能逐行判断。
+#
+$pattern = '^\s*describe\s+(?<resource>.*?)\s+do\s*$'
+
+$result = @()
+
+foreach ($line in $fileLines) {
+    if ($line -match $pattern) {
+        # 获取捕获组resource的值
+        $resourceName = $matches['resource'].Trim()
+        # 可以根据需求存储到数组或输出
+        $result += $resourceName
+    }
+}
+
+# 3. 输出
+# 如果你只是想打印出来看看
+$result | ForEach-Object { 
+    Write-Host "在 describe 中捕获到的资源：$_" 
+}
