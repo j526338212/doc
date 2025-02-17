@@ -1,0 +1,100 @@
+<#
+.SYNOPSIS
+  从 Chef InSpec Profile 中提取完整的 control 段落文本。
+
+.PARAMETER FilePath
+  指定要解析的 InSpec Profile 文件路径。
+
+.EXAMPLE
+  .\Extract-FullControl.ps1 -FilePath .\controls\example.rb
+
+.NOTES
+  - 该脚本基于正则 + 行处理，统计 do..end 深度。
+  - 适用于大多数常规场景，但如果出现非常规用法（如 Ruby 里字符串拼接等），可能需要更高级的解析方式。
+#>
+
+param (
+    [Parameter(Mandatory=$true)]
+    [string]$FilePath
+)
+
+# 读取文件的所有行（以数组方式返回）
+try {
+    $lines = Get-Content -Path $FilePath
+}
+catch {
+    Write-Error "无法读取文件：$FilePath"
+    return
+}
+
+# 存放提取出来的控制信息
+$collectedControls = @()
+
+# 这几个变量用于追踪是否正在收集某个 control、当前深度等
+$inControlBlock = $false
+$depth = 0
+$accumulator = New-Object System.Collections.Generic.List[string]
+$controlName = $null
+
+foreach ($line in $lines) {
+
+    if (-not $inControlBlock) {
+        # 尚未进入 control 块，检测是否遇到 control 'xxx' do
+        # 注意，这里同时支持 control "xxx" do 和 control 'xxx' do
+        $pattern = 'control\s+(["''])([^"']+)\1\s+do'
+        $m = [regex]::Match($line, $pattern)
+
+        if ($m.Success) {
+            # 找到一个新的 control 块开头
+            $controlName = $m.Groups[2].Value  # control 名称（比如 some-control）
+            $inControlBlock = $true
+            $accumulator.Clear()
+
+            # 统计当前行中出现的 do 和 end 次数
+            # 注意 \bdo\b 和 \bend\b 带单词边界，避免匹配到其他单词
+            $doCount = [regex]::Matches($line, '\bdo\b').Count
+            $endCount = [regex]::Matches($line, '\bend\b').Count
+            $depth = $doCount - $endCount
+
+            $accumulator.Add($line)
+        }
+    }
+    else {
+        # 已经在 control 块内部，继续收集行
+        $accumulator.Add($line)
+
+        # 统计本行出现的 do 和 end 次数，并更新当前深度
+        $doCount = [regex]::Matches($line, '\bdo\b').Count
+        $endCount = [regex]::Matches($line, '\bend\b').Count
+        $depth += ($doCount - $endCount)
+
+        # 如果深度回到0，说明该 control 块中的 do..end 全部闭合
+        if ($depth -le 0) {
+            # 至此，一个完整的 control 块结束
+            $collectedControls += [PSCustomObject]@{
+                ControlName = $controlName
+                Lines       = $accumulator.ToArray()     # Array of lines
+                RawText     = ($accumulator -join "`r`n") # 或者拼成单个字符串
+            }
+
+            # 重置标志和临时变量
+            $inControlBlock = $false
+            $depth = 0
+            $controlName = $null
+            $accumulator.Clear()
+        }
+    }
+}
+
+# 如果需要在屏幕上查看结果，可简单输出
+Write-Host "`n=== 提取到的 control 块信息 ==="
+foreach ($ctrl in $collectedControls) {
+    Write-Host "Control Name: $($ctrl.ControlName)"
+    Write-Host "----- RawText Start -----"
+    Write-Host $ctrl.RawText
+    Write-Host "----- RawText End   -----"
+    Write-Host "`n"
+}
+
+# 最终可将 $collectedControls 作为脚本返回值
+return $collectedControls
