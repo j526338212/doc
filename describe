@@ -107,3 +107,15 @@ $parsedResult | ForEach-Object {
 $itsPattern = "(?m)^\s*its\s*\(\s*[\"']?(?<itsField>[^\"'\)]+)[\"']?\)\s*\{\s*(?<itsBody>[^}]*)\}"
 
 $itsPattern = "(?m)^\\s*its\\s*\\(\\s*[\"']?(?<itsField>[^\"'\\)]+)[\"']?\\)\\s*\\{\\s*(?<itsBody>[^}]*)\\}"
+
+
+# 单引号 Here-String的语法是 @' ... '@
+# 注意必须单独占行结束
+# 在这个范围内，所有字符都被视为字面量（除了换行作为内容）
+# 所以你几乎不需要任何转义。
+$itsPattern = @'
+(?m)^\s*its\s*\(\s*["']?(?<itsField>[^"'\)]+)["']?\)\s*\{\s*(?<itsBody>[^}]*)\}
+'@
+
+# 查看结果
+Write-Host "Pattern is:`n$itsPattern"
