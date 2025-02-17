@@ -105,3 +105,5 @@ $parsedResult | ForEach-Object {
 # 在 PowerShell 中，^\s*、\{、\} 等元字符同样生效，不需要额外处理。
 
 $itsPattern = "(?m)^\s*its\s*\(\s*[\"']?(?<itsField>[^\"'\)]+)[\"']?\)\s*\{\s*(?<itsBody>[^}]*)\}"
+
+$itsPattern = "(?m)^\\s*its\\s*\\(\\s*[\"']?(?<itsField>[^\"'\\)]+)[\"']?\\)\\s*\\{\\s*(?<itsBody>[^}]*)\\}"
