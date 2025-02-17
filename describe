@@ -99,3 +99,9 @@ foreach ($descMatch in $describeMatches) {
 $parsedResult | ForEach-Object {
     $_
 }
+# 使用双引号把整个正则表达式括起来
+# 然后在字符类里对双引号进行转义 \" ，
+# 同时保留单引号 ' （它在双引号字符串里不需要转义）。
+# 在 PowerShell 中，^\s*、\{、\} 等元字符同样生效，不需要额外处理。
+
+$itsPattern = "(?m)^\s*its\s*\(\s*[\"']?(?<itsField>[^\"'\)]+)[\"']?\)\s*\{\s*(?<itsBody>[^}]*)\}"
