@@ -1,0 +1,153 @@
+下面示例脚本在此前“解析 `describe ... do`”的基础上，针对 **`security_policy`**、**`security_policy.property`**、以及 **`registry_key("...")`** 等几种 **常见 InSpec 资源定义**做了**更精确**的解析示例。主要思路是通过**特定正则模式**，只匹配你想要捕获的资源形式。
+
+> **说明**  
+> - 若实际 InSpec 代码中还有更多写法（比如多行、嵌套调用等），需进一步扩展脚本。  
+> - 如果只关心“某几种”资源（如 `security_policy` / `registry_key`），可在正则中使用 **排他性**或 **可选性**(alternation) 来匹配。  
+> - 示例仅针对单行形式的 `describe ... do`；若有跨行情况，需要额外处理。
+
+---
+
+## 脚本示例：示例解析 security_policy / security_policy.property / registry_key("...")
+
+```powershell
+<#
+.SYNOPSIS
+  从 InSpec 控制文件中，精确匹配以下 describe 资源定义：
+    1) describe security_policy do
+    2) describe security_policy.anyPropertyHere do
+    3) describe registry_key("some registry path") do
+  
+.DESCRIPTION
+  - 逐行读取 .rb 文件
+  - 使用特定正则一次性捕获并解析 describe 后紧跟的三种资源：
+      security_policy
+      security_policy.something
+      registry_key("...")
+  - 输出捕获到的资源字符串做演示
+
+.EXAMPLE
+  PS C:\> .\ParseSpecificResources.ps1 -Path .\controls.rb
+#>
+
+param(
+    [Parameter(Mandatory=$true, HelpMessage="请指定完整 InSpec 控制文件路径")]
+    [string]$Path
+)
+
+if (!(Test-Path $Path)) {
+    Write-Host "文件 $Path 不存在，请确认路径正确。"
+    return
+}
+
+# 1. 逐行读取
+$fileLines = Get-Content -Path $Path
+
+# 2. 预备正则模式: 
+#    ^\s*describe\s+(?<resource>(?:security_policy(?:\.\w+)?|registry_key\("[^"]*"\)))\s+do\s*$
+#
+#   解读:
+#     - ^\s*describe\s+  : 行首可有空格，然后是 "describe " (至少一个空格)
+#     - (?<resource>(?:security_policy(?:\.\w+)?|registry_key\("[^"]*"\))) :
+#         - 我们用 (?: ...| ... ) 表示“或” 
+#         - security_policy(?:\.\w+)? 表示 security_policy 后可选 .xxx 形式 (如 security_policy.AccountPolicy)
+#         - registry_key\("[^"]*"\)  表示 registry_key("...")，匹配双引号内的任何非引号字符
+#     - \s+do\s*$ : 紧接着空格后是 do，并到行尾结束
+#
+$pattern = '^\s*describe\s+(?<resource>(?:security_policy(?:\.\w+)?|registry_key\("[^"]*"\)))\s+do\s*$'
+
+# 3. 用于存放结果
+$matchedResources = @()
+
+foreach ($line in $fileLines) {
+    if ($line -match $pattern) {
+        $resourceName = $matches['resource']
+        $matchedResources += $resourceName
+    }
+}
+
+# 4. 输出演示
+if ($matchedResources.Count -eq 0) {
+    Write-Host "未捕获到任何符合条件的 describe 行。"
+    return
+}
+
+Write-Host "`n捕获到以下 describe 资源："
+$matchedResources | ForEach-Object {
+    Write-Host " - $_"
+}
+```
+
+---
+
+### 核心正则解析
+
+```regex
+^\s*describe\s+
+(?<resource>                # 将资源名捕获到名为 "resource" 的分组
+   (?:                      # 非捕获组，用于分隔 '或'
+     security_policy        # 匹配 "security_policy"
+       (?:\.\w+)?           # 可选匹配: .后面紧跟一个或多个 word 字符 (property 名)
+     |                      # 或者
+     registry_key\("[^"]*"\)# 匹配 registry_key("...")，中间允许任意非双引号字符
+   )
+)
+\s+do\s*$
+```
+
+- `security_policy(?:\.\w+)?`  
+  - 表示**可能**有 `.propertyName` 的形式，比如 `security_policy`, `security_policy.PasswordPolicy`, `security_policy.Something123`。  
+- `registry_key\("[^"]*"\)`  
+  - 匹配 `registry_key("...")`，其中 `...` 可以是任意非双引号字符。  
+- `^\s*...do\s*$`  
+  - 表示行首至行尾，确保我们只抓 **被写在同一行** 的 `describe ... do` 语句。  
+
+---
+
+### 示例输入输出
+
+假设你的 `controls.rb` 有如下几行：
+
+```ruby
+describe security_policy do
+  ...
+end
+
+describe security_policy.PasswordPolicy do
+  ...
+end
+
+describe registry_key("HKEY_LOCAL_MACHINE\\Software\\Microsoft") do
+  ...
+end
+
+describe registry_key("HKEY_LOCAL_MACHINE\\System\\Something else") do
+  ...
+end
+
+describe file('/etc/ssh/sshd_config') do
+  ...
+end
+```
+
+执行脚本之后，示例输出可能是：
+
+```
+捕获到以下 describe 资源：
+ - security_policy
+ - security_policy.PasswordPolicy
+ - registry_key("HKEY_LOCAL_MACHINE\Software\Microsoft")
+ - registry_key("HKEY_LOCAL_MACHINE\System\Something else")
+```
+
+可以看到 `describe file('...') do` 并不符合**这次**的特定正则，所以不会出现在结果列表里。
+
+---
+
+## 小结
+
+1. **切分思路**：先逐行读取，再用 **特定正则** 只捕获你感兴趣的资源名。  
+2. **正则要点**：通过 `(?: ... | ... )` 来做“或”匹配，**把特定资源写法列在一起**；并用分组提取 `(security_policy(\.\w+)?)` 等。  
+3. **更多写法**：需要解析比如 `security_policy('some argument')` 或更复杂场景，可类似扩展在正则里添加对应的写法。  
+4. **多行情况**：如果 `describe security_policy do` 不是写在同一行（例如换行写 `describe security_policy` 与 `do` 分开），需要更复杂的多行捕获逻辑。  
+
+这样，你就可以**定向**解析到 `security_policy`, `security_policy.property`, 以及 `registry_key("...")` 等三种 InSpec 资源定义了。祝你玩得开心！
