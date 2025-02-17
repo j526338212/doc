@@ -1,0 +1,81 @@
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$FilePath
+)
+
+function Parse-InspecProfile {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Content
+    )
+
+    # 1）匹配 control 区块，多行匹配。
+    #    这里用 (?s) 表示单行模式（Singleline），让点号 . 可以匹配换行。
+    #    (?s)control\s+"([^"]+)"\s+do(.*?)end
+    $controlRegex = [regex]'(?s)control\s+"([^"]+)"\s+do(.*?)end'
+    $controlMatches = $controlRegex.Matches($Content)
+
+    foreach ($controlMatch in $controlMatches) {
+
+        # $controlMatch.Groups[1].Value => control 名称
+        # $controlMatch.Groups[2].Value => control 内部的所有内容
+        $controlName = $controlMatch.Groups[1].Value
+        $controlBody = $controlMatch.Groups[2].Value
+
+        # 2）在控制块内查找 impact、title、desc 等信息
+        $impactRegex = [regex]'impact\s+([0-9\.]+)'
+        $titleRegex  = [regex]'title\s+"([^"]+)"'
+        $descRegex   = [regex]'desc\s+"([^"]+)"'
+
+        $impactMatch = $impactRegex.Match($controlBody)
+        $titleMatch  = $titleRegex.Match($controlBody)
+        $descMatch   = $descRegex.Match($controlBody)
+
+        $impactValue = if ($impactMatch.Success) { $impactMatch.Groups[1].Value } else { $null }
+        $titleValue  = if ($titleMatch.Success)  { $titleMatch.Groups[1].Value }  else { $null }
+        $descValue   = if ($descMatch.Success)   { $descMatch.Groups[1].Value }   else { $null }
+
+        # 3）可以用另一个正则匹配多个 describe 块，示例如下
+        $describeRegex = [regex]'(?s)describe\s+([^\(]+?)\((.*?)\)(.*?)end'
+        $describeMatches = $describeRegex.Matches($controlBody)
+
+        # 将所有 describe 的信息（这里仅示例提取“describe service('xxx')”这样的写法）放进数组
+        $describes = foreach ($dm in $describeMatches) {
+            $resourceType = $dm.Groups[1].Value.Trim()
+            $resourceParam = $dm.Groups[2].Value.Trim()
+            $describeBody = $dm.Groups[3].Value.Trim()
+
+            # 只做一个简单展示，实际可根据需求更精准提取
+            [PSCustomObject]@{
+                ResourceType = $resourceType
+                Param        = $resourceParam
+                Body         = $describeBody
+            }
+        }
+
+        # 4）返回结果（仍然用 PSCustomObject，方便后续处理）
+        [PSCustomObject]@{
+            Control    = $controlName
+            Impact     = $impactValue
+            Title      = $titleValue
+            Description= $descValue
+            Describes  = $describes
+        }
+    }
+}
+
+# 主体逻辑
+
+# 读取文件（以 -Raw 获取完整多行字符串）
+if (Test-Path $FilePath) {
+    $content = Get-Content -Path $FilePath -Raw
+
+    # 调用函数解析
+    $results = Parse-InspecProfile -Content $content
+
+    # 打印结果
+    $results | Format-Table -AutoSize
+}
+else {
+    Write-Host "找不到文件: $FilePath"
+}
