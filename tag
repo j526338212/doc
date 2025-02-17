@@ -137,3 +137,4 @@ if (Test-Path $FilePath) {
 else {
     Write-Host "❌ 找不到文件: $FilePath"
 }
+$tagLineRegex = [regex]"(?m)^\s*tag\s+(\w+)\s*:\s*(?:(['""])([^'""]+)\2|[^\s]+)"
