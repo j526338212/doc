@@ -1,0 +1,61 @@
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$FilePath
+)
+
+function Parse-InspecProfile {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Content
+    )
+
+    # 1）先拿正则匹配 control 块
+    $controlRegex = [regex]'(?s)control\s+"([^"]+)"\s+do(.*?)end'
+    $controlMatches = $controlRegex.Matches($Content)
+
+    $controlObjects = foreach ($controlMatch in $controlMatches) {
+        
+        $controlName = $controlMatch.Groups[1].Value   # control "xxx" 中 xxx
+        $controlBody = $controlMatch.Groups[2].Value   # control块中的正文
+
+        # 在control块里再匹配多个describe
+        $describeRegex = [regex]'(?s)describe\s+(.+?)\s+do(.*?)end'
+        $describeMatches = $describeRegex.Matches($controlBody)
+
+        $describeObjects = foreach ($dm in $describeMatches) {
+            # $dm.Groups[1] => describe 后面接的资源或表达式，如 service('xxx')
+            # $dm.Groups[2] => describe ... do 与 end 之间的正文
+
+            $resourceName = $dm.Groups[1].Value.Trim()
+            $describeBody = $dm.Groups[2].Value.Trim()
+
+            [PSCustomObject]@{
+                Resource = $resourceName
+                Body     = $describeBody
+            }
+        }
+
+        # 把control及其多个describe作为一个整体返回
+        [PSCustomObject]@{
+            ControlName = $controlName
+            Describes   = $describeObjects
+        }
+    }
+
+    return $controlObjects
+}
+
+# 主体执行
+if (Test-Path $FilePath) {
+    $content = Get-Content -Path $FilePath -Raw
+    $results = Parse-InspecProfile -Content $content
+
+    # 可以以表格的方式查看ControlName
+    $results | Format-Table -AutoSize
+
+    # 如果想查看内部 Describes，可以展开：
+    # $results | Select-Object ControlName, Describes
+}
+else {
+    Write-Host "❌ 找不到文件: $FilePath"
+}
