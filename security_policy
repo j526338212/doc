@@ -1,20 +1,32 @@
 param(
-    [int]$DesiredLockout
+    [int]$DesiredLockout = 30
 )
 
-# 导出本地安全策略
+# 1. 导出本地安全策略
 SecEdit /export /areas SECURITYPOLICY /cfg C:\Temp\exported.inf
 
-# 读取 .inf 文件内容
+# 2. 读取 .inf 文件内容
 $lines = Get-Content -Path C:\Temp\exported.inf
 
-# 使用正则匹配形如 "Key=Value" 的行
+# 3. 逐行解析，并根据逗号分割 value
 foreach ($line in $lines) {
     if ($line -match '^(\S+)=(.+)$') {
         $key   = $matches[1]
         $value = $matches[2].Trim()
 
-        # 如果找到 LockoutDuration 这一项，就跟用户输入的期望值比较
+        # 将 value 按逗号分割成数组
+        $valueSplit = $value -split ','
+
+        # 示例：如果 key 为 AllowedPaths，那么就遍历这些路径
+        if ($key -eq 'AllowedPaths') {
+            Write-Host "当前 AllowedPaths 设置为：$value"
+            Write-Host "分割后得到的路径数组为："
+            foreach ($path in $valueSplit) {
+                Write-Host " - $path"
+            }
+        }
+
+        # 示例：如果 key 为 LockoutDuration，比较数值
         if ($key -eq 'LockoutDuration') {
             Write-Host "当前 LockoutDuration 为: $value"
             if ($value -eq $DesiredLockout) {
