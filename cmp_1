@@ -1,0 +1,20 @@
+# 假设以下变量 $str 中保存的是你需要处理的字符串
+# $str = '== 4'
+# $str = '"%\\SystemRoot%\\system32"'
+
+switch -Regex ($str) {
+
+    # 如果匹配到以双引号开头，以双引号结尾
+    '^".*"$' {
+        # 去掉前后的引号
+        $value = $str.Trim('"')
+        Write-Host "这是第二种格式，去掉引号后得到：$value"
+    }
+
+    # 如果是其它情况（例如 “== 4”）
+    default {
+        # 按空格分割
+        $parts = $str -split '\s+'
+        Write-Host "这是第一种格式，分割结果：$($parts[0]) 和 $($parts[1])"
+    }
+}
