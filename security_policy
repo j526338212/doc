@@ -1,0 +1,27 @@
+param(
+    [int]$DesiredLockout
+)
+
+# 导出本地安全策略
+SecEdit /export /areas SECURITYPOLICY /cfg C:\Temp\exported.inf
+
+# 读取 .inf 文件内容
+$lines = Get-Content -Path C:\Temp\exported.inf
+
+# 使用正则匹配形如 "Key=Value" 的行
+foreach ($line in $lines) {
+    if ($line -match '^(\S+)=(.+)$') {
+        $key   = $matches[1]
+        $value = $matches[2].Trim()
+
+        # 如果找到 LockoutDuration 这一项，就跟用户输入的期望值比较
+        if ($key -eq 'LockoutDuration') {
+            Write-Host "当前 LockoutDuration 为: $value"
+            if ($value -eq $DesiredLockout) {
+                Write-Host "锁定持续时间已满足期望值：$DesiredLockout 分钟。"
+            } else {
+                Write-Host "锁定持续时间($value) 不同于期望值($DesiredLockout)！"
+            }
+        }
+    }
+}
