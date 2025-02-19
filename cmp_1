@@ -1,20 +1,80 @@
-# 假设以下变量 $str 中保存的是你需要处理的字符串
-# $str = '== 4'
+param(
+    [int]$desiredValue = 5
+)
+
+# 示例：可能的输入字符串
+# $str = '== 1'
+# $str = '>= 5'
 # $str = '"%\\SystemRoot%\\system32"'
+$str = '<= 10'
 
 switch -Regex ($str) {
 
-    # 如果匹配到以双引号开头，以双引号结尾
+    # 1. 如果匹配到以双引号开头、双引号结尾
     '^".*"$' {
-        # 去掉前后的引号
+        # 去掉最外层引号
         $value = $str.Trim('"')
-        Write-Host "这是第二种格式，去掉引号后得到：$value"
+        Write-Host "这是带引号的格式：$str"
+        Write-Host "去掉引号后得到：$value"
+        # 在这里可以执行其它逻辑，如路径检查等
     }
 
-    # 如果是其它情况（例如 “== 4”）
+    # 2. 否则，假设是「运算符 + 空格 + 数值」格式
     default {
         # 按空格分割
         $parts = $str -split '\s+'
-        Write-Host "这是第一种格式，分割结果：$($parts[0]) 和 $($parts[1])"
+
+        # 假设分割后 $parts[0] 是运算符，$parts[1] 是数值
+        if ($parts.Count -ge 2 -and $parts[1] -match '^\d+$') {
+            $op = $parts[0]
+            $num = [int]$parts[1]
+
+            Write-Host "检测到字符串为“$op $num”格式"
+
+            # 根据运算符，跟 $desiredValue 做比较
+            switch ($op) {
+                '==' {
+                    if ($num -eq $desiredValue) {
+                        Write-Host "数值($num) 与期望值($desiredValue) 相等。"
+                    } else {
+                        Write-Host "数值($num) 不等于期望值($desiredValue)。"
+                    }
+                }
+                '>=' {
+                    if ($num -ge $desiredValue) {
+                        Write-Host "数值($num) >= 期望值($desiredValue)。"
+                    } else {
+                        Write-Host "数值($num) < 期望值($desiredValue)。"
+                    }
+                }
+                '>' {
+                    if ($num -gt $desiredValue) {
+                        Write-Host "数值($num) > 期望值($desiredValue)。"
+                    } else {
+                        Write-Host "数值($num) <= 期望值($desiredValue)。"
+                    }
+                }
+                '<=' {
+                    if ($num -le $desiredValue) {
+                        Write-Host "数值($num) <= 期望值($desiredValue)。"
+                    } else {
+                        Write-Host "数值($num) > 期望值($desiredValue)。"
+                    }
+                }
+                '<' {
+                    if ($num -lt $desiredValue) {
+                        Write-Host "数值($num) < 期望值($desiredValue)。"
+                    } else {
+                        Write-Host "数值($num) >= 期望值($desiredValue)。"
+                    }
+                }
+                default {
+                    Write-Host "不支持的运算符：$op"
+                }
+            }
+        }
+        else {
+            Write-Host "该行无法解析为运算符与数值，请检查输入：$str"
+        }
     }
 }
