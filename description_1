@@ -1,0 +1,110 @@
+在 InSpec 中，如果某些 `description` 字段写成类似以下形式：
+
+```ruby
+description "This is a \"test\" description, maybe \\\"escaped quotes\\\" are here."
+```
+
+就会看到一对双引号包裹的字符串内容，其中还包含了形如 `\"` 的转义双引号。此时，如果你想用 PowerShell 的正则在文本中**提取**此 `description` 的整个字符串内容（排除最外层的双引号），可以使用以下方式：
+
+---
+
+## 1. 核心思路
+
+1. **定位行里含有 `description` 关键字**（或者你也可以提前过滤只匹配包含 `description` 的行），  
+2. **使用正则捕获分组**，获取双引号之间的内容。  
+3. 由于字符串内部可能包含已转义的 `\"`，我们需要一个正则来“允许”反斜杠方式的转义，并且不因为 `\"` 就提前结束匹配。
+
+最常见的做法是用下面的模式：
+
+```
+description\s*"(?<desc>(\\.|[^"\\])*)"
+```
+
+它的含义是：  
+- `description\s*`：匹配 `description` 后面紧跟着零个或多个空白符；  
+- `"`：然后遇到一个起始双引号；  
+- `(?<desc>(\\.|[^"\\])*)`：用命名分组 `desc` 捕获内部所有字符，  
+  - `\\.` 表示“反斜杠加任意字符”（可理解为转义后的字符，例如 `\"`），  
+  - `[^"\\]` 表示所有非双引号且非反斜杠的字符，  
+  - 合并成 `(...)*)` 表示可以出现零次或多次；  
+- `"`：最后遇到一个非转义的双引号作为结束。
+
+这样，在 Powershell 中你就能拿到 `$Matches['desc']`，即双引号内实际的内容（含 `\"` 这些转义符就作为普通文本保留在结果里），但不包括最外层的引号。
+
+---
+
+## 2. 代码示例
+
+下面的脚本示例演示如何在某个 InSpec 文件中查找所有 `description "..."` 行，并Extract出配对的引号里所有内容。
+
+假设文件路径为 `C:\temp\inspec_controls.rb`。示例如下：
+
+```powershell
+$FilePath = "C:\temp\inspec_controls.rb"
+$lines = Get-Content $FilePath
+
+# 正则：捕获 description "..." 中间的任何字符（含反斜杠转义）
+$pattern = 'description\s*"(?<desc>(\\.|[^"\\])*)"'
+
+foreach ($line in $lines) {
+    if ($line -match $pattern) {
+        $descContent = $Matches['desc']
+        Write-Host "原始行： $line"
+        Write-Host "捕获到的 description 内容： $descContent"
+        Write-Host "-----"
+    }
+}
+```
+
+### 运行结果
+
+- 如果在文件中有一行：
+
+  ```ruby
+  description "This is a \"test\" description, maybe \\\"escaped quotes\\\" are here."
+  ```
+  
+  那么 `$Matches['desc']` 会是：
+
+  ```
+  This is a \"test\" description, maybe \\\"escaped quotes\\\" are here.
+  ```
+
+- 如果文件中存在多行包含 `description "..."`，上述脚本也会一一列出。
+
+---
+
+## 3. 注意事项
+
+1. **多行字符串**：  
+   如果 `description` 被写成 **跨多行**（例如 `""` 包裹多行），那就要用其他适配多行的处理方式，不一定能用简单的单行匹配做完。可以考虑：  
+   - 把文件内容整体作为一个大字符串，然后用 `(?s)` 单行模式的正则；  
+   - 或者逐行拼接并检测 `description "` 后直到找到匹配的引号结束；  
+   - 不过 InSpec 常见场景通常是单行 `description "<content>"`。
+
+2. **可能存在多个 `description`**：  
+   如需一次提取多个描述，你可以像上面那样在一个循环里，每行都尝试匹配。如果想要一次匹配所有出现，也可以对整个文件内容（使用 `-join` 合成一大字符串）执行一个多次匹配的正则（`[RegEx]::Matches()`）。示例：
+   ```powershell
+   $fileContent = (Get-Content $FilePath -Raw)
+   $regex = [regex]'description\s*"(?<desc>(\\.|[^"\\])*)"'
+   $matches = $regex.Matches($fileContent)
+   foreach ($m in $matches) {
+       $descContent = $m.Groups['desc'].Value
+       Write-Host "description 内容：" $descContent
+   }
+   ```
+
+3. **如果还想把 `\"` 还原为 `"`**：  
+   - 你可以再在提取到的 `$descContent` 上做替换，比如：  
+     ```powershell
+     $unescaped = $descContent -replace '\\"','"'
+     ```  
+   - 这个步骤表示：“把所有的 `\"` 替换成 `"`”，这样就能拿到真正显示中的引号。但如果文件中还存在复杂的转义形式（如 `\\n`、`\t` 等），那就要进一步做处理。
+
+---
+
+### 总结
+
+- 使用 `description\s*"(?<desc>(\\.|[^"\\])*)"` 能够匹配单行中 `description "…"` 包裹的内容，处理到 `\"` 这类转义。  
+- 得到 `$Matches['desc']` 后，你可以据需去进一步处理（例如把 `\"` 替换回普通双引号）。  
+- 若遇到多行场景或更复杂语法，需要考虑多行正则或按块分割来处理。
