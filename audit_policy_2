@@ -1,0 +1,50 @@
+<#
+.SYNOPSIS
+  使用正则解析 auditpol /get /category:* 的输出
+.DESCRIPTION
+  1. 通过 auditpol 命令获取完整审计策略列表
+  2. 用正则识别 “类别” （无空格开头的行）
+  3. 用正则识别 “子类别 + 设置 + 继承自” （以空格开头的行）
+  4. 生成对象数组进行打印
+.NOTES
+  请确保在以管理员权限运行的 PowerShell 中执行。
+#>
+
+# 1. 获取 auditpol 的输出
+$auditOutput = auditpol /get /category:*
+
+# 2. 准备一个数组保存最终结果
+$results = @()
+
+# 记录当前解析到的 Category（审计类别）
+$currentCategory = ""
+
+# 3. 逐行分析
+foreach ($line in $auditOutput)
+{
+    # 如果该行"没有"前导空格，则认为是 Category
+    if ($line -match "^\S")
+    {
+        $currentCategory = $line.Trim()
+        continue
+    }
+
+    # 如果该行为以空格开头，尝试用正则解析出 Subcategory / Setting / InheritedFrom
+    # 注意：不同系统语言下输出可能略有差异，需要按实际输出做适当修改
+    if ($line -match "^\s+(?<Subcategory>.+?)\s{2,}(?<Setting>.+?)\s{2,}(?<Inherited>.+)$")
+    {
+        $subcategory   = $Matches['Subcategory'].Trim()
+        $setting       = $Matches['Setting'].Trim()
+        $inheritedFrom = $Matches['Inherited'].Trim()
+
+        $results += [PSCustomObject]@{
+            Category      = $currentCategory
+            Subcategory   = $subcategory
+            Setting       = $setting
+            InheritedFrom = $inheritedFrom
+        }
+    }
+}
+
+# 4. 输出结果对象（按需可进行排序或导出 CSV）
+$results
