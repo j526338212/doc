@@ -1,0 +1,50 @@
+以下示例演示了如何在 PowerShell 中调用某个函数时捕获其产生的错误（非终止性错误），并且不在调用点抛出异常，而是通过 `$Error` 集合来获取错误信息。这样做可以方便你后续根据需要来处理或忽略错误。
+
+```powershell
+# 定义一个示例函数：如果参数 Number 小于零，则写出一个非终止性的错误。
+function MyFunction {
+    param ([int]$Number)
+
+    if ($Number -lt 0) {
+        Write-Error "Number cannot be negative"  # 默认是非终止性错误
+    } else {
+        Write-Host "Your number: $Number"
+    }
+}
+
+# 将 ErrorActionPreference 设置为 "SilentlyContinue"，使函数中的非终止性错误不会抛出到调用方。
+$ErrorActionPreference = "SilentlyContinue"
+
+# 调用函数，传入一个会触发错误的参数
+MyFunction -Number -5
+
+# 检查全局错误变量 $Error 中是否捕获到了错误
+if ($Error.Count -gt 0) {
+    # 获取最新的一条错误对象
+    $lastError = $Error[0]
+    Write-Host "捕获到错误：" $lastError.Exception.Message
+
+    # 根据需要，可以清空 $Error，避免后续对错误的干扰
+    $Error.Clear()
+}
+```
+
+关键点说明：
+
+1. **非终止性错误 & 终止性错误**  
+   - `Write-Error` 默认会产生非终止性错误（Non-terminating Error），不会自动触发 `catch` 语句块，而是将错误对象存放到 `$Error` 集合中。  
+   - 对于需要触发 `catch` 的场景，一般会在调用命令时指定 `-ErrorAction Stop` 或者使用 `throw`，从而把错误升级为“终止性错误”。
+
+2. **`$ErrorActionPreference` 变量**  
+   - 当 `$ErrorActionPreference` 被设为 `"SilentlyContinue"` 时，非终止性错误不会在控制台输出红色错误信息，也不会影响脚本继续执行，但会记录到 `$Error` 集合中。  
+   - 常见的取值有：  
+     - `Continue`（默认）：写出红色错误信息，但脚本继续执行。  
+     - `SilentlyContinue`：不输出错误信息，仍然继续执行。  
+     - `Stop`：将非终止性错误当作终止性错误来处理，从而触发 `catch` 块。  
+     - `Inquire`：每次遇到错误时提示（交互式）。  
+
+3. **捕获并不抛出**  
+   - 示例里使用了 `$ErrorActionPreference = "SilentlyContinue"` 配合检查 `$Error` 集合来“捕获但不抛出”函数产生的非终止性错误。  
+   - 捕获后可根据实际需求决定是否要输出日志、终止脚本、或继续执行等。  
+
+这样就能实现“捕获函数错误并不抛出”这一需求。希望对你有所帮助！
