@@ -1,0 +1,22 @@
+以下示例演示了如何使用 PowerShell 获取某个注册表键下所有自定义的属性（即不包括 `PSPath` 等以 `PS` 开头的内部属性）及它们对应的值。请将示例中的路径替换为你想要查询的具体注册表路径。
+
+```powershell
+# 1. 指定要查询的注册表键路径（示例）
+$keyPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion'
+
+# 2. 获取该注册表键下的所有属性
+$regItem = Get-ItemProperty -Path $keyPath
+
+# 3. 从返回对象中筛选出注册表的自定义属性（排除以 PS 开头的内部属性）并列出名称与数值
+$regItem.PSObject.Properties |
+    Where-Object { $_.Name -notmatch '^PS.*' } |
+    Select-Object Name, Value
+```
+
+运行上述脚本后，即可列出目标注册表键中所有自定义的属性名称以及对应的值。若想查看包含所有 `PS` 开头的内部属性在内的完整信息，可以直接执行：
+
+```powershell
+Get-ItemProperty -Path $keyPath | Format-List *
+```
+
+这样就可以更全面地查看该注册表键所包含的所有属性及其值。
