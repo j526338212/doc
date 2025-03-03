@@ -1,0 +1,59 @@
+# 定义一个类，用于存放项目与功能映射
+class ProjectStore {
+
+    # 静态哈希表，用于存储“项目名称” -> “执行脚本”的映射
+    static [hashtable] $ProjectActions = @{
+        "ProjectA" = {
+            param($someParam)
+            Write-Host "执行 ProjectA 对应功能，传入参数: $($someParam)"
+            # 这里可以放置任意对 ProjectA 的逻辑操作
+        }
+        "ProjectB" = {
+            param($someParam)
+            Write-Host "执行 ProjectB 对应功能，传入参数: $($someParam)"
+            # 这里可以放置任意对 ProjectB 的逻辑操作
+        }
+        "ProjectC" = {
+            param($someParam)
+            Write-Host "执行 ProjectC 对应功能，传入参数: $($someParam)"
+            # 这里可以放置任意对 ProjectC 的逻辑操作
+        }
+    }
+
+    # 定义方法，用于执行给定项目的脚本块
+    [void] ExecuteProjectAction([string] $projectName, $paramForProject) {
+        if ([ProjectStore]::ProjectActions.ContainsKey($projectName)) {
+            # 取出脚本块
+            $action = [ProjectStore]::ProjectActions[$projectName]
+
+            # 执行脚本块，并传递所需的参数
+            & $action $paramForProject
+        }
+        else {
+            Write-Host "项目 $projectName 不在预设列表中，无法执行对应功能。"
+        }
+    }
+}
+
+# =========================
+# 以下是测试用示例：
+# =========================
+
+# 1. 实例化类（实例化并不是必须的，但演示用）
+$store = [ProjectStore]::new()
+
+# 2. 传入存在于静态映射中的项目名称
+$store.ExecuteProjectAction("ProjectA", "我是ProjectA的参数")
+
+# 3. 传入不存在于静态映射中的项目名称
+$store.ExecuteProjectAction("ProjectX", "我是不存在项目的参数")
+
+# 4. 可在脚本运行时，向静态映射中增加更多项目及其功能
+[ProjectStore]::ProjectActions["ProjectD"] = {
+    param($someParam)
+    Write-Host "执行 ProjectD 对应功能，传入参数: $($someParam)"
+    # 这里可以放置任意对 ProjectD 的操作
+}
+
+# 再次执行新增的 ProjectD
+$store.ExecuteProjectAction("ProjectD", "我是ProjectD的参数")
