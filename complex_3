@@ -1,0 +1,81 @@
+class ProjectStore {
+
+    # 使用静态哈希表来存放 项目名称 => 脚本块 的映射
+    static [hashtable] $ProjectActions = @{
+        "ProjectA" = {
+            param($inputParam)
+            
+            # 模拟一些处理逻辑，例如根据输入参数做一些事情
+            $processedValue = "处理后的数据: $($inputParam.ToUpper())"
+            
+            # 直接返回你想要的数据
+            return $processedValue
+        }
+
+        "ProjectB" = {
+            param($inputParam)
+
+            # 演示返回一个自定义对象（PSCustomObject）
+            # 也可以返回字符串、数组、哈希表、整数等
+            $obj = [PSCustomObject]@{
+                ProjectName  = "ProjectB"
+                OriginalData = $inputParam
+                Date         = (Get-Date)
+            }
+            return $obj
+        }
+
+        "ProjectC" = {
+            param($inputParam)
+            
+            # 返回一个简单的字符串
+            return "ProjectC return: $inputParam"
+        }
+    }
+
+    # 该方法用给定项目名，从哈希表里拿到脚本块执行，并返回结果
+    [object] ExecuteProjectAction([string] $projectName, $paramForProject) {
+        if ([ProjectStore]::ProjectActions.ContainsKey($projectName)) {
+            $action = [ProjectStore]::ProjectActions[$projectName]
+            
+            # 执行脚本块并捕获返回值
+            $result = & $action $paramForProject
+
+            # 将捕获到的结果返回给调用方
+            return $result
+        }
+        else {
+            # 如果项目不存在，可返回 $null 或抛出异常
+            return $null
+        }
+    }
+}
+
+# =========================
+# 以下演示如何使用：
+# =========================
+
+# 1. 实例化
+$store = [ProjectStore]::new()
+
+# 2. 执行并获取返回值 - (执行 ProjectA)
+$resultA = $store.ExecuteProjectAction("ProjectA", "hello world")
+Write-Host "`n-- 执行 ProjectA --"
+Write-Host "返回值: $resultA"
+
+# 3. 执行并获取返回值 - (执行 ProjectB)
+$resultB = $store.ExecuteProjectAction("ProjectB", "some data")
+Write-Host "`n-- 执行 ProjectB --"
+Write-Host "返回值类型: $($resultB.GetType())"
+Write-Host "对象内容: "
+$resultB | Format-List
+
+# 4. 执行并获取返回值 - (执行 ProjectC)
+$resultC = $store.ExecuteProjectAction("ProjectC", "test param")
+Write-Host "`n-- 执行 ProjectC --"
+Write-Host "返回值: $resultC"
+
+# 5. 执行不存在的项目
+$resultX = $store.ExecuteProjectAction("ProjectX", "not exist")
+Write-Host "`n-- 执行不存在的项目 ProjectX --"
+Write-Host "结果: $resultX"
