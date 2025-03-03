@@ -1,0 +1,35 @@
+# 定义类 ProjectStore
+class ProjectStore {
+    
+    # 使用静态变量来存放项目列表
+    static [string[]] $Projects = @(
+        "ProjectA","ProjectB","ProjectC"
+    )
+    
+    # 该方法用于检查传入项目名称是否在静态项目列表中
+    [bool] IsProjectExist([string] $projectName) {
+        return [ProjectStore].Projects -contains $projectName
+    }
+}
+
+# 1. 可以通过类名直接调用静态属性或静态方法
+Write-Host "原始静态列表：" [ProjectStore]::Projects
+
+# 2. 也可以在实例化后，通过实例调用非静态方法，从而间接使用静态属性
+$store = [ProjectStore]::new()
+if ($store.IsProjectExist("ProjectA")) {
+    Write-Host "ProjectA 已存在于静态项目列表中"
+} else {
+    Write-Host "ProjectA 不存在于静态项目列表中"
+}
+
+# 3. 演示如何向静态列表中添加新的项目
+[ProjectStore]::Projects += "ProjectD"
+Write-Host "添加 ProjectD 后的静态列表：" [ProjectStore]::Projects
+
+# 4. 再次检查
+if ($store.IsProjectExist("ProjectD")) {
+    Write-Host "ProjectD 已存在于静态项目列表中"
+} else {
+    Write-Host "ProjectD 不存在于静态项目列表中"
+}
