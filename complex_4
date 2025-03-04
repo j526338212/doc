@@ -1,0 +1,74 @@
+下面给出一个示例，示范如何在 PowerShell 中使用 `class` 来定义一批静态的项目名称，然后在构造函数中给每个项目名称分配对应的操作函数。代码中示范了最基本的流程，你可以根据自己的需求去扩展对应的操作逻辑或函数。
+
+```powershell
+Class ProjectHandler {
+    # 1. 预先通过静态变量留出项目列表
+    static [string[]] $ProjectNames = @("ProjectA", "ProjectB", "ProjectC")
+
+    # 2. 用来存放「项目名称 -> 项目操作函数」的哈希表
+    [System.Collections.Hashtable] $ProjectActions
+
+    # 3. 构造函数：初始化哈希表，并给每个项目名称绑定对应操作
+    ProjectHandler() {
+        $this.ProjectActions = [System.Collections.Hashtable]::new()
+
+        # 遍历静态变量中已经声明的项目名
+        foreach ($proj in [ProjectHandler]::ProjectNames) {
+            switch ($proj) {
+                "ProjectA" {
+                    $this.ProjectActions[$proj] = [ScriptBlock]::Create({
+                        Write-Host "正在执行 ProjectA 的操作..."
+                        # 在此处补充你对 ProjectA 的具体操作
+                    })
+                }
+                "ProjectB" {
+                    $this.ProjectActions[$proj] = [ScriptBlock]::Create({
+                        Write-Host "正在执行 ProjectB 的操作..."
+                        # 在此处补充你对 ProjectB 的具体操作
+                    })
+                }
+                "ProjectC" {
+                    $this.ProjectActions[$proj] = [ScriptBlock]::Create({
+                        Write-Host "正在执行 ProjectC 的操作..."
+                        # 在此处补充你对 ProjectC 的具体操作
+                    })
+                }
+                default {
+                    # 如果将来扩展更多项目，要注意对应处理
+                    Write-Warning "未定义项目：$proj 的操作逻辑，跳过初始化。"
+                }
+            }
+        }
+    }
+
+    # 4. 对外提供接口函数，通过项目名执行对应操作
+    [void] ExecuteAction([string] $ProjectName) {
+        if ($this.ProjectActions.ContainsKey($ProjectName)) {
+            Write-Host "发现项目：$ProjectName，开始执行对应操作..."
+            & $this.ProjectActions[$ProjectName]
+        }
+        else {
+            Write-Host "未在列表中找到项目：$ProjectName"
+        }
+    }
+}
+
+# === 演示如何使用 ===
+
+# 实例化类
+$projectHandler = [ProjectHandler]::new()
+
+# 尝试执行各个已定义的项目操作
+$projectHandler.ExecuteAction("ProjectA")
+$projectHandler.ExecuteAction("ProjectB")
+$projectHandler.ExecuteAction("ProjectC")
+
+# 测试不存在的项目
+$projectHandler.ExecuteAction("ProjectX")
+```
+
+> **要点：**  
+> 1. 通过 `static [string[]] $ProjectNames` 先在类中声明一批项目名字。  
+> 2. 构造函数中，根据项目名字创建对应的 `ScriptBlock`（或者你可以直接给出已有的函数引用）。  
+> 3. 用哈希表来映射「项目名称」到真正的执行脚本逻辑，方便统一管理。  
+> 4. 执行时只需传入项目名称给 `ExecuteAction` 即可。
