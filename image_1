@@ -1,0 +1,38 @@
+以下是一段简短的 PowerShell 脚本示例，将指定的版本号拆分成 `a.b.c` 并进行排序后输出结果。你可以直接将这段代码保存为 `.ps1` 文件执行。
+
+```powershell
+# 定义原始版本号列表
+$versions = @(
+    "1.10.0",
+    "0.0.9",
+    "1.8.0",
+    "1.13.2",
+    "1.14.1"
+)
+
+# 将版本号拆分为 Major、Minor、Patch
+$parsedVersions = $versions | ForEach-Object {
+    $parts = $_ -split '\.'
+    [PSCustomObject]@{
+        Major    = [int]$parts[0]
+        Minor    = [int]$parts[1]
+        Patch    = [int]$parts[2]
+        Original = $_
+    }
+}
+
+# 根据 Major、Minor、Patch 进行排序
+$sortedVersions = $parsedVersions | Sort-Object Major, Minor, Patch
+
+# 将排序后的版本号输出（也可以把结果输出到文件等）
+$sortedVersions.Original
+```
+
+执行后，输出顺序如下：
+```
+0.0.9
+1.8.0
+1.10.0
+1.13.2
+1.14.1
+```
