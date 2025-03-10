@@ -1,0 +1,66 @@
+下面给出一个示例 PowerShell 函数，用于比较两个版本号的大小。该函数返回以下结果：  
+- **-1**：表示第一个版本号 *小于* 第二个版本号  
+- **0**：表示两个版本号 *相等*  
+- **1**：表示第一个版本号 *大于* 第二个版本号  
+
+```powershell
+Function Compare-Version {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Version1,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$Version2
+    )
+
+    # 将版本号拆分为 Major、Minor、Patch 并转换成整数
+    $v1 = $Version1 -split '\.'
+    $v2 = $Version2 -split '\.'
+
+    [int]$major1 = $v1[0]
+    [int]$minor1 = $v1[1]
+    [int]$patch1 = $v1[2]
+
+    [int]$major2 = $v2[0]
+    [int]$minor2 = $v2[1]
+    [int]$patch2 = $v2[2]
+
+    # 先比较 Major
+    if ($major1 -lt $major2) {
+        return -1
+    } elseif ($major1 -gt $major2) {
+        return 1
+    } else {
+        # 若 Major 相等，比较 Minor
+        if ($minor1 -lt $minor2) {
+            return -1
+        } elseif ($minor1 -gt $minor2) {
+            return 1
+        } else {
+            # 若 Minor 也相等，比较 Patch
+            if ($patch1 -lt $patch2) {
+                return -1
+            } elseif ($patch1 -gt $patch2) {
+                return 1
+            } else {
+                return 0
+            }
+        }
+    }
+}
+```
+
+## 用法示例
+
+1. 将上述代码复制到一个名为 `Compare-Version.ps1` 的脚本文件中，并在 PowerShell 中导入：
+    ```powershell
+    . .\Compare-Version.ps1
+    ```
+
+2. 调用该函数并查看返回值：
+    ```powershell
+    Compare-Version "1.10.0" "1.8.0"   # 预期返回 1 (1.10.0 > 1.8.0)
+    Compare-Version "0.0.9" "1.13.2"  # 预期返回 -1 (0.0.9 < 1.13.2)
+    Compare-Version "1.14.1" "1.14.1" # 预期返回 0 (版本相等)
+    ```
