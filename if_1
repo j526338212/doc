@@ -1,0 +1,134 @@
+# Example Ruby code (can be modified to read file content)
+$code = @'
+control 'example' do
+  # There may be other Chef Inspec content here
+
+  if false
+    puts "this is if-block"
+    if nested_condition
+      # This is a nested if block, only as an example, to be ignored
+    end
+  elsif nil
+    puts "this is elsif-block"
+  else
+    puts "this is else-block"
+  end
+
+  # There may be other Chef Inspec content here
+end
+'@
+
+# Split the code by line into an array
+$lines = $code -split "`r?`n"
+
+# Variables to store results
+$ifCondition    = ""
+$ifBlock        = ""
+$elsifCondition = ""
+$elsifBlock     = ""
+$elseBlock      = ""
+
+# We only parse the first-level if/elsif/else/end
+# If any nested if is encountered, skip it entirely.
+# The overall idea is: once we enter the first 'if', if we see another 'if',
+# treat it as nested and skip everything inside until the matching 'end'.
+# The following logic can be adjusted as needed.
+
+# Mark whether we have entered the first-level if structure
+$currentLevel = 0
+$skipNested   = $false
+# Mark which block we are currently in (if/elsif/else)
+$currentBlock = $null
+
+foreach ($line in $lines) {
+    # Remove leading/trailing whitespace
+    $trimLine = $line.Trim()
+
+    # If we are currently skipping a nested structure
+    if ($skipNested) {
+        # Check if we have left the nested structure (by encountering 'end')
+        if ($trimLine -match '^end\s*$') {
+            $currentLevel--
+            if ($currentLevel -eq 0) {
+                # Disable skipping once we exit all nested levels
+                $skipNested = $false
+            }
+        }
+        else {
+            # If we encounter another 'if', we need to increment and continue until the matching 'end'
+            if ($trimLine -match '^if\s+.*') {
+                $currentLevel++
+            }
+        }
+        continue
+    }
+
+    switch ($trimLine) {
+
+        { $_ -match '^if\s+(.*)' } {
+            # If we haven't entered any if structure yet, this is the first-level if
+            if (-not $currentBlock) {
+                $ifCondition += $Matches[1]
+                # Mark that we have entered the if
+                $currentBlock = 'if'
+            }
+            else {
+                # If we are already in an if/elsif/else block and again see an 'if',
+                # treat it as nested, start skipping
+                $skipNested = $true
+                $currentLevel = 1
+            }
+        }
+
+        { $_ -match '^elsif\s+(.*)' } {
+            # Enter elsif
+            if ($currentBlock -eq 'if' -or $currentBlock -eq 'elsif') {
+                $elsifCondition += $Matches[1]
+                $currentBlock = 'elsif'
+            }
+            else {
+                # If we see elsif in an else block, it doesn't count as a valid first-level structure,
+                # so ignore or handle accordingly
+            }
+        }
+
+        { $_ -match '^else\s*$' } {
+            # Enter else
+            if ($currentBlock -eq 'if' -or $currentBlock -eq 'elsif') {
+                $currentBlock = 'else'
+            }
+        }
+
+        { $_ -match '^end\s*$' } {
+            # End if block
+            if ($currentBlock) {
+                $currentBlock = $null
+            }
+        }
+
+        default {
+            # If it's content, then depending on currentBlock, append it to the relevant string
+            switch ($currentBlock) {
+                'if'    { $ifBlock    += ($line + "`n") }
+                'elsif' { $elsifBlock += ($line + "`n") }
+                'else'  { $elseBlock  += ($line + "`n") }
+            }
+        }
+    }
+}
+
+# Output the results
+Write-Host "----- IF condition -----"
+Write-Host $ifCondition
+
+Write-Host "----- IF block content -----"
+Write-Host $ifBlock
+
+Write-Host "----- ELSIF condition -----"
+Write-Host $elsifCondition
+
+Write-Host "----- ELSIF block content -----"
+Write-Host $elsifBlock
+
+Write-Host "----- ELSE block content -----"
+Write-Host $elseBlock
