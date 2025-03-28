@@ -1,4 +1,193 @@
-#  Step 1: Sample Ruby/Inspec code
+###############################################################################
+# A helper function that returns the indentation level of a line, assuming
+# 2 spaces = 1 indent level.
+###############################################################################
+function Get-IndentLevel {
+  param (
+    [string] $line,
+    [int] $spacesPerIndent = 2
+  )
+
+  $indentMatch = [regex]::Match($line, '^([ ]+)')
+  if ($indentMatch.Success) {
+    # How many spaces total
+    $totalSpaces = $indentMatch.Groups[1].Value.Length
+    # Return how many 2-space blocks we have
+    return [int]($totalSpaces / $spacesPerIndent)
+  }
+  else {
+    return 0
+  }
+}
+
+###############################################################################
+# SAMPLE: A Ruby/Inspec snippet for demonstration
+# Note: you would likely load this from a file or another source in real usage.
+###############################################################################
+$code = @'
+control "example-control" do
+  description "Some multiline description
+    that might contain if statements
+  "
+
+  if false
+    describe do
+      # This describe block is nested in the if-block
+      it { should eq true }
+    end
+
+    if nested_condition
+      # This is another nested if
+      # We'll skip it
+    end
+  elsif nil
+    puts "this is elsif-block"
+  else
+    puts "this is else-block"
+  end
+
+  # Possibly more code here...
+end
+'@
+
+###############################################################################
+# STEP 1: Remove the description blocks if needed (optional).
+# For this demo, we'll just skip that and parse directly.
+# If you already have code to remove or handle descriptions, apply it first.
+###############################################################################
+# Your existing logic goes here...
+# e.g. $code = $code -replace '(?s)description\s*".*?"', ''
+
+
+###############################################################################
+# STEP 2: Split code by lines and prepare variables
+###############################################################################
+$lines = $code -split "`r?`n"
+
+# We'll store the top-level if/elsif/else condition and body in these variables
+$ifCondition    = ""
+$ifBlock        = ""
+$elsifCondition = ""
+$elsifBlock     = ""
+$elseBlock      = ""
+
+# Mark whether we have found the first-level if yet
+$foundIf        = $false
+$ifIndent       = -1    # indentation level of the first-level if
+
+# We'll track which "branch" we're currently parsing: 'if', 'elsif', or 'else'
+$currentBlock = $null
+
+###############################################################################
+# STEP 3: Parse lines by indentation
+###############################################################################
+for ($i = 0; $i -lt $lines.Count; $i++) {
+  $line = $lines[$i]
+  $trimLine = $line.Trim()
+
+  # Calculate how many 2-space indent levels are at the start of this line
+  $indentLevel = Get-IndentLevel $line
+
+  # If we haven't found the first-level if yet, let's look for it
+  if (-not $foundIf) {
+    # Match an if statement at any indentation level (but we'll only treat
+    # the first one we find as the top-level if).
+    if ($trimLine -match '^if\s+(.*)' ) {
+      $foundIf      = $true
+      $ifIndent     = $indentLevel
+      $ifCondition += $Matches[1]
+      $currentBlock = 'if'
+      continue
+    }
+    else {
+      # Not an if, just move on
+      continue
+    }
+  }
+  else {
+    # Once we have found the first-level if, we only look for same-level
+    # elsif/else/end lines if they have the same indent as $ifIndent.
+    # If indent < $ifIndent, it means we've gone out of the control block (or out of scope).
+    # If indent > $ifIndent, it means nested code (either nested if, describe do, etc.).
+    # We'll skip them for the purpose of top-level if/elsif/else parsing.
+
+    if ($indentLevel -lt $ifIndent) {
+      # Already out of the first-level if/elsif/else scope
+      break
+    }
+    elseif ($indentLevel -gt $ifIndent) {
+      # This is a nested block: could be do...end, nested if, etc.
+      # We'll still record it as content of the *currentBlock*,
+      # but we won't parse if/elsif/else from this (since it's nested).
+      switch ($currentBlock) {
+        'if'    { $ifBlock    += ($line + "`n") }
+        'elsif' { $elsifBlock += ($line + "`n") }
+        'else'  { $elseBlock  += ($line + "`n") }
+      }
+      continue
+    }
+    else {
+      # This line has the same indentation as the top-level if
+      # => Could be elsif, else, end, or something else at the same level
+      switch -Regex ($trimLine) {
+
+        '^if\s+(.*)' {
+          # Another if at the same indentation => Possibly a second separate top-level if
+          # For simplicity, we won't parse multiple top-level if statements in this example.
+          # We can either break or skip. Let's break to stop after the first if block.
+          break
+        }
+
+        '^elsif\s+(.*)' {
+          $elsifCondition += $Matches[1]
+          $currentBlock = 'elsif'
+        }
+
+        '^else\s*$' {
+          $currentBlock = 'else'
+        }
+
+        '^end\s*$' {
+          # End the if block
+          if ($currentBlock) {
+            $currentBlock = $null
+          }
+          # Once we see end at the same indentation as $ifIndent,
+          # it means we've closed out the entire top-level if structure
+          break
+        }
+
+        default {
+          # It's code at the same indentation level, but not if/elsif/else/end
+          # We'll put it in whichever block we are currently in
+          switch ($currentBlock) {
+            'if'    { $ifBlock    += ($line + "`n") }
+            'elsif' { $elsifBlock += ($line + "`n") }
+            'else'  { $elseBlock  += ($line + "`n") }
+          }
+        }
+      }
+    }
+  }
+}
+
+###############################################################################
+# STEP 4: Output results
+###############################################################################
+Write-Host "----- IF condition -----"
+Write-Host $ifCondition
+
+Write-Host "----- IF block content -----"
+Write-Host $ifBlock
+
+Write-Host "----- ELSIF condition -----"
+Write-Host $elsifCondition
+
+Write-Host "----- ELSIF block content -----"
+Write-Host $elsifBlock
+
+Write-Host "----- ELSE block content -----"
+Write-Host $elseBlock#  Step 1: Sample Ruby/Inspec code
 #  (In real usage, read this from a file or another source)
   $code = @'
   control "example-control" do
