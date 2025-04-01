@@ -1,0 +1,26 @@
+在跨平台 PowerShell（版本 7 及以上）中，默认的错误显示模式（**ConciseView**）通常不会直接显示出错命令所处的行号和列号。如果你希望像早期 Windows PowerShell 那样，看到详细的报错信息（包括出错脚本、行号、字符位置等），可以通过修改 `$ErrorView` 变量来实现。以下是最常用的两种方式：
+
+1. **临时修改会话中的错误显示模式**  
+   在当前 PowerShell 会话中直接执行：
+   ```powershell
+   $ErrorView = "NormalView"
+   ```
+   或者
+   ```powershell
+   $ErrorView = "DetailedView"
+   ```
+   这样之后，新的错误就会展示出错脚本、行号和字符位置等更多信息。
+
+2. **永久修改（在配置文件里设置）**  
+   如果你想在每次启动 PowerShell 时都自动设置成此模式，可以将上面的命令放到你的 PowerShell 配置文件（例如 `$PROFILE.CurrentUserAllHosts`）中。例如：
+
+   ```powershell
+   if (!(Test-Path $PROFILE.CurrentUserAllHosts)) {
+       New-Item -ItemType File -Force -Path $PROFILE.CurrentUserAllHosts
+   }
+
+   Add-Content $PROFILE.CurrentUserAllHosts '$ErrorView = "NormalView"'
+   ```
+   保存后，再次打开 PowerShell，就会默认使用 **NormalView**（或 **DetailedView**）来显示错误。  
+
+> **提示**：如果你还想查看更详细的调用堆栈、内部异常信息，可以将 `$ErrorView` 设为 `"DetailedView"`，它会在错误信息中包含更多的调用细节。
