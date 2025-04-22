@@ -1,0 +1,25 @@
+awk '
+  # odd line number => store as start time
+  NR % 2 == 1 {
+    start = $0
+  }
+
+  # even line number => treat as end time, then compute duration
+  NR % 2 == 0 {
+    end = $0
+    # 将开始、结束时间转换为 Unix 时间戳
+    "date -d \"" start "\" +%s" | getline st
+    "date -d \"" end "\" +%s" | getline et
+
+    # 计算耗时（秒）
+    diff = et - st
+
+    # 将耗时格式化为 HH:MM:SS
+    hours = int(diff / 3600)
+    mins  = int((diff % 3600) / 60)
+    secs  = diff % 60
+
+    # 输出结果
+    printf("开始时间: %s, 结束时间: %s, 耗时: %02d:%02d:%02d\n", start, end, hours, mins, secs)
+  }
+' times.log
